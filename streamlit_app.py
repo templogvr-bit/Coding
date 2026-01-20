@@ -1,7 +1,8 @@
 import streamlit as st
 import subprocess
-import sounddevice as sd
 import numpy as np
+import soundfile as sf
+import io
 import os
 
 st.title("Piper TTS Streamer")
@@ -12,42 +13,47 @@ I learned how to smile convincingly while something inside me slowly gave up."""
 text_input = st.text_area("Enter text to speak:", value=default_text, height=150)
 
 # Model configuration
-model_path = "en_US-hfc_female-medium.onnx"
-sample_rate = 22050
+MODEL_PATH = os.path.join(os.path.dirname(__file__),
+                          "en_US-hfc_female-medium.onnx")
+SAMPLE_RATE = 22050
 
 if st.button("Send"):
     if not text_input.strip():
         st.warning("Please enter some text.")
-    elif not os.path.exists(model_path):
-        st.error(f"Model file not found: {model_path}")
+    elif not os.path.exists(MODEL_PATH):
+        st.error(f"Model file not found: {MODEL_PATH}")
     else:
-        status_placeholder = st.empty()
-        status_placeholder.text("Initializing Piper...")
+        status = st.empty()
+        status.text("Initializing Piper...")
 
         try:
-            # Start the piper process
+            # Start Piper process
             proc = subprocess.Popen(
-                ["piper", "--model", model_path, "--output-raw"],
+                ["piper", "--model", MODEL_PATH, "--output-raw"],
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
-            
-            # Send text to piper
-            status_placeholder.text("Generating and streaming audio...")
-            proc.stdin.write(text_input.encode())
+
+            # Send text to Piper
+            status.text("Generating audio...")
+            proc.stdin.write(text_input.encode("utf-8"))
             proc.stdin.close()
-            
-            # Stream audio to speakers
-            with sd.OutputStream(samplerate=sample_rate, channels=1, dtype="int16") as stream:
-                while True:
-                    chunk = proc.stdout.read(2048) # Read in chunks
-                    if not chunk:
-                        break
-                    audio = np.frombuffer(chunk, dtype=np.int16)
-                    stream.write(audio)
-            
+
+            # Collect raw PCM audio
+            raw_audio = proc.stdout.read()
             proc.wait()
-            status_placeholder.success("Done!")
-            
+
+            # Convert PCM → NumPy
+            audio = np.frombuffer(raw_audio, dtype=np.int16).astype(np.float32) / 32768.0
+
+            # Write WAV to memory
+            buffer = io.BytesIO()
+            sf.write(buffer, audio, SAMPLE_RATE, format="WAV")
+            buffer.seek(0)
+
+            status.success("Playback ready")
+            st.audio(buffer, format="audio/wav")
+
         except Exception as e:
-            status_placeholder.error(f"Error occurred: {e}")
+            status.error(f"Error occurred: {e}")
