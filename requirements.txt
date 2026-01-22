@@ -2,3 +2,5 @@ streamlit
 numpy
 soundfile
 piper-tts
+google-genai
+pipecat-ai[google,daily,deepgram,runner]
